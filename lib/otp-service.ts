@@ -1,50 +1,79 @@
-import nodemailer from 'nodemailer';
+import { createHmac, randomInt, timingSafeEqual } from 'crypto';
+import mongoose, { Schema, models } from 'mongoose';
 
-type OtpEntry = {
-  otp: string;
-  expiresAt: number;
+type OtpRecord = {
+  identifier: string;
+  tokenHash: string;
+  expiresAt: Date;
 };
 
-// Global in-memory OTP store across hot reloads in Next.js dev server
-const globalOtpStore = globalThis as unknown as {
-  otpStore?: Map<string, OtpEntry>;
+const otpSchema = new Schema<OtpRecord>({
+  identifier: { type: String, required: true, unique: true },
+  tokenHash: { type: String, required: true },
+  expiresAt: { type: Date, required: true, expires: 0 },
+});
+
+const Otp: mongoose.Model<OtpRecord> =
+  (models.Otp as mongoose.Model<OtpRecord> | undefined) || mongoose.model<OtpRecord>('Otp', otpSchema);
+
+const globalMongo = globalThis as typeof globalThis & {
+  mongoConnection?: Promise<typeof mongoose>;
 };
 
-if (!globalOtpStore.otpStore) {
-  globalOtpStore.otpStore = new Map<string, OtpEntry>();
+async function connectMongo() {
+  if (mongoose.connection.readyState === 1) return;
+  const uri = process.env.MONGODB_URI;
+  if (!uri) throw new Error('MONGODB_URI is not configured.');
+  globalMongo.mongoConnection ??= mongoose.connect(uri);
+  try {
+    await globalMongo.mongoConnection;
+  } catch (error) {
+    globalMongo.mongoConnection = undefined;
+    throw error;
+  }
 }
 
-const otpStore = globalOtpStore.otpStore;
+function normalizeIdentifier(identifier: string) {
+  return identifier.trim().toLowerCase();
+}
 
-export function generateOtp(identifier: string): string {
-  const cleanId = identifier.trim().toLowerCase();
-  // Generate 6 digit numeric code
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes validity
+function hashOtp(otp: string) {
+  const secret = process.env.OTP_SECRET || process.env.MONGODB_URI;
+  if (!secret) throw new Error('Configure MONGODB_URI or OTP_SECRET.');
+  return createHmac('sha256', secret).update(otp).digest('hex');
+}
 
-  otpStore.set(cleanId, { otp, expiresAt });
+export async function generateOtp(identifier: string): Promise<string> {
+  await connectMongo();
+  const otp = randomInt(100000, 1000000).toString();
+  await Otp.findOneAndUpdate(
+    { identifier: normalizeIdentifier(identifier) },
+    { tokenHash: hashOtp(otp), expiresAt: new Date(Date.now() + 5 * 60 * 1000) },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
   return otp;
 }
 
-export function verifyOtpCode(identifier: string, code: string): boolean {
-  const cleanId = identifier.trim().toLowerCase();
-  const entry = otpStore.get(cleanId);
-
-  if (!entry) {
+export async function verifyOtpCode(identifier: string, code: string): Promise<boolean> {
+  await connectMongo();
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+  const record = await Otp.findOne({ identifier: normalizedIdentifier }).lean();
+  if (!record || record.expiresAt.getTime() <= Date.now()) {
+    await Otp.deleteOne({ identifier: normalizedIdentifier });
     return false;
   }
 
-  if (Date.now() > entry.expiresAt) {
-    otpStore.delete(cleanId);
-    return false;
-  }
+  const expected = Buffer.from(record.tokenHash, 'hex');
+  const actual = Buffer.from(hashOtp(code.trim()), 'hex');
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false;
 
-  if (entry.otp === code.trim()) {
-    otpStore.delete(cleanId); // Single-use OTP
-    return true;
-  }
+  const result = await Otp.deleteOne({ _id: record._id, tokenHash: record.tokenHash });
+  return result.deletedCount === 1;
+}
 
-  return false;
+export async function deleteOtp(identifier: string) {
+  await connectMongo();
+  await Otp.deleteOne({ identifier: normalizeIdentifier(identifier) });
 }
 
 function buildMailOptions(email: string, otp: string, senderEmail?: string) {
@@ -94,6 +123,38 @@ export async function sendOtpEmail(
   otp: string
 ): Promise<{ success: boolean; messageUrl?: string; error?: string }> {
   try {
+    const resendApiKey = process.env.RESEND_API_KEY?.trim();
+    const emailFrom = process.env.EMAIL_FROM?.trim();
+
+    if (resendApiKey) {
+      if (!emailFrom) {
+        return { success: false, error: 'Email sender is not configured. Set EMAIL_FROM in Vercel.' };
+      }
+
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: emailFrom,
+          to: [email],
+          subject: 'Your Grievance Portal login OTP',
+          text: `Your OTP code is ${otp}. It is valid for 5 minutes.`,
+          html: `<p>Your Grievance Portal OTP is <strong>${otp}</strong>.</p><p>It is valid for 5 minutes.</p>`,
+        }),
+      });
+
+      if (!response.ok) {
+        const details = await response.text();
+        console.error('[Resend email error]', response.status, details);
+        return { success: false, error: 'Email provider rejected the message. Check your Resend sender domain and Vercel logs.' };
+      }
+
+      return { success: true };
+    }
+
     const gmailUser = process.env.GMAIL_USER?.trim();
     const gmailPass = (process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS)
       ?.replace(/\s+/g, '')
@@ -120,66 +181,35 @@ export async function sendOtpEmail(
       !smtpUser.includes('your_') &&
       !smtpPass.includes('your_');
 
-    if (isRealGmail) {
+    if (isRealGmail || isRealSmtp) {
       try {
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: gmailUser,
-            pass: gmailPass,
-          },
-        });
+        const nodemailer = (await import('nodemailer')).default;
+        const transporter = isRealGmail
+          ? nodemailer.createTransport({
+              service: 'gmail',
+              auth: { user: gmailUser, pass: gmailPass },
+            })
+          : nodemailer.createTransport({
+              host: smtpHost,
+              port: smtpPort,
+              secure: smtpPort === 465,
+              auth: { user: smtpUser, pass: smtpPass },
+            });
         const mailOptions = buildMailOptions(email, otp, gmailUser);
         const info = await transporter.sendMail(mailOptions);
-        console.log(`[Gmail OTP Sent to ${email}] Message ID: ${info.messageId}`);
+        console.log(`[OTP email sent] Message ID: ${info.messageId}`);
         return { success: true };
-      } catch (gmailErr: any) {
-        console.warn('[Gmail Transport Error, falling back to test transport]', gmailErr?.message || gmailErr);
+      } catch (mailError: any) {
+        console.error('[OTP email delivery error]', mailError?.message || mailError);
+        return { success: false, error: 'Email delivery failed. Check the email settings and Vercel function logs.' };
       }
     }
 
-    if (isRealSmtp) {
-      try {
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpPort === 465,
-          auth: {
-            user: smtpUser,
-            pass: smtpPass,
-          },
-        });
-        const mailOptions = buildMailOptions(email, otp);
-        const info = await transporter.sendMail(mailOptions);
-        console.log(`[SMTP OTP Sent to ${email}] Message ID: ${info.messageId}`);
-        return { success: true };
-      } catch (smtpErr: any) {
-        console.warn('[SMTP Transport Error, falling back to test transport]', smtpErr?.message || smtpErr);
-      }
-    }
-
-    // Fallback: Create Ethereal test transport so user is never blocked by email failures
-    const testAccount = await nodemailer.createTestAccount();
-    const transporter = nodemailer.createTransport({
-      host: testAccount.smtp.host,
-      port: testAccount.smtp.port,
-      secure: testAccount.smtp.secure,
-      auth: {
-        user: testAccount.user,
-        pass: testAccount.pass,
-      },
-    });
-
-    const mailOptions = buildMailOptions(email, otp);
-    const info = await transporter.sendMail(mailOptions);
-    const messageUrl = nodemailer.getTestMessageUrl(info) || undefined;
-
-    console.log(`[Test OTP Email Sent to ${email}] Preview URL: ${messageUrl}`);
-    return { success: true, messageUrl };
+    return { success: false, error: 'Email is not configured. Add RESEND_API_KEY and EMAIL_FROM in Vercel.' };
   } catch (error: any) {
     const rawError = String(error?.message || error || '');
     console.error('[OTP Email Exception]', rawError);
-    return { success: true }; // Always return success so user login flow completes
+    return { success: false, error: 'Unable to send email. Check the email settings and Vercel function logs.' };
   }
 }
 
@@ -221,10 +251,9 @@ export async function sendOtpSms(
       return { success: true };
     }
 
-    console.log(`[Mobile Phone OTP Generated] Phone: ${phone} | Code: ${otp}`);
-    return { success: true };
+    return { success: false, error: 'SMS is not configured. Use email OTP or configure Twilio in Vercel.' };
   } catch (err: any) {
     console.error('[SMS Delivery Exception]', err);
-    return { success: true };
+    return { success: false, error: 'SMS delivery failed. Check the Twilio settings and Vercel function logs.' };
   }
 }

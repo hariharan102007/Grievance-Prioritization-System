@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { generateOtp, sendOtpEmail, sendOtpSms } from '@/lib/otp-service';
+import { deleteOtp, generateOtp, sendOtpEmail, sendOtpSms } from '@/lib/otp-service';
+
+export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
   let body: { email?: string; phone?: string };
@@ -17,22 +19,38 @@ export async function POST(request: Request) {
   }
 
   const targetIdentifier = email || phone || '';
-  const otp = generateOtp(targetIdentifier);
+  try {
+    const otp = await generateOtp(targetIdentifier);
 
-  if (email) {
-    await sendOtpEmail(email, otp);
-    return NextResponse.json({
-      success: true,
-      message: `OTP sent successfully to ${email}. Please check your inbox.`,
-    });
-  }
+    if (email) {
+      const result = await sendOtpEmail(email, otp);
+      if (!result.success) {
+        await deleteOtp(targetIdentifier);
+        return NextResponse.json({ error: result.error }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        message: `OTP sent successfully to ${email}. Please check your inbox.`,
+      });
+    }
 
-  if (phone) {
-    await sendOtpSms(phone, otp);
-    return NextResponse.json({
-      success: true,
-      message: `OTP sent to ${phone}. Please check your SMS inbox.`,
-    });
+    if (phone) {
+      const result = await sendOtpSms(phone, otp);
+      if (!result.success) {
+        await deleteOtp(targetIdentifier);
+        return NextResponse.json({ error: result.error }, { status: 502 });
+      }
+      return NextResponse.json({
+        success: true,
+        message: `OTP sent to ${phone}. Please check your SMS inbox.`,
+      });
+    }
+  } catch (error) {
+    console.error('[OTP request failed]', error);
+    return NextResponse.json(
+      { error: 'OTP service is unavailable. Check MongoDB and email settings in Vercel.' },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ error: 'Failed to process request.' }, { status: 500 });

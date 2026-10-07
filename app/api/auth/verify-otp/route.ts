@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { verifyOtpCode } from '@/lib/otp-service';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: Request) {
   let body: { email?: string; phone?: string; token?: string; otp?: string };
   try {
@@ -23,7 +25,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'OTP code is required.' }, { status: 400 });
   }
 
-  const isValid = verifyOtpCode(targetIdentifier, token);
+  let isValid: boolean;
+  try {
+    isValid = await verifyOtpCode(targetIdentifier, token);
+  } catch (error) {
+    console.error('[OTP verification failed]', error);
+    return NextResponse.json(
+      { error: 'OTP service is unavailable. Check MongoDB settings in Vercel.' },
+      { status: 500 }
+    );
+  }
 
   if (!isValid) {
     return NextResponse.json(
