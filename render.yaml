@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: dsa-frontend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://taojrxtuflxiqwyyjwil.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: sb_publishable_EL5d9FoUCR3_8matDjrVTw_dfmgM4Qp
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://dsa-backend.onrender.com
+      - key: API_BASE_URL
+        value: https://dsa-backend.onrender.com
+      - key: MONGODB_URI
+        value: mongodb+srv://username:password@cluster.example.mongodb.net/dsa_project
+      - key: MONGODB_DB_NAME
+        value: dsa_project
+      - key: GMAIL_USER
+        value: your-sender@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        value: your-google-app-password
+      - key: OTP_SECRET
+        value: replace-with-a-long-random-secret
+      - key: EMAIL_FROM
+        value: your-sender@gmail.com
+
+  - type: web
+    name: dsa-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node backend/server.js
+    healthCheckPath: /
+    envVars:
+      - key: MONGODB_URI
+        value: mongodb+srv://username:password@cluster.example.mongodb.net/dsa_project
+      - key: MONGODB_DB_NAME
+        value: dsa_project
+      - key: PORT
+        value: 4000
+      - key: GMAIL_USER
+        value: your-sender@gmail.com
+      - key: GMAIL_APP_PASSWORD
+        value: your-google-app-password
+      - key: OTP_SECRET
+        value: replace-with-a-long-random-secret
+      - key: EMAIL_FROM
+        value: your-sender@gmail.com
