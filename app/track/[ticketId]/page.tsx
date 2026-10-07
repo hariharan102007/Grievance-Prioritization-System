@@ -184,6 +184,14 @@ export default function TrackPage() {
                   </div>
                   <p className="mt-1 text-sm leading-relaxed">{complaint.description}</p>
                 </div>
+                    {complaint.photo_url && (
+                      <div>
+                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Proof / Photo</div>
+                        <div className="mt-2">
+                          <img src={complaint.photo_url} alt={`Proof for ${complaint.ticket_id}`} className="max-h-80 w-full object-contain rounded-md border border-border/60" />
+                        </div>
+                      </div>
+                    )}
                 {complaint.location && (
                   <div className="flex items-start gap-2">
                     <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />

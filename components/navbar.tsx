@@ -2,25 +2,30 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, Users, Brain, Terminal, Menu, LogOut, Zap } from 'lucide-react';
+import { ShieldCheck, Users, Brain, Menu, LogOut, Building2 } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
 type NavbarProps = {
-  user?: { name: string; email: string } | null;
+  user?: { name: string; email: string; role?: 'citizen' | 'officer' } | null;
   onLogout?: () => void;
 };
 
-const NAV_ITEMS = [
-  { href: '/',        label: 'Citizen Portal',           icon: Users,    accent: 'text-sky-500',    activeBg: 'bg-sky-500/10'    },
-  { href: '/officer', label: 'Officer Intelligence',      icon: Brain,    accent: 'text-violet-500', activeBg: 'bg-violet-500/10' },
-  { href: '/command', label: 'AI Civic Command Center',  icon: Terminal, accent: 'text-emerald-500',activeBg: 'bg-emerald-500/10'},
+const CITIZEN_NAV_ITEMS = [
+  { href: '/', label: 'Citizen Portal', icon: Users, accent: 'text-sky-500', activeBg: 'bg-sky-500/10' },
+];
+
+const OFFICER_NAV_ITEMS = [
+  { href: '/officer', label: 'Officer Intelligence', icon: Brain, accent: 'text-violet-500', activeBg: 'bg-violet-500/10' },
+  { href: '/officers', label: 'Officer Directory', icon: ShieldCheck, accent: 'text-emerald-500', activeBg: 'bg-emerald-500/10' },
 ];
 
 export function Navbar({ user, onLogout }: NavbarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const activeRole = user?.role ?? 'guest';
+  const navItems = activeRole === 'officer' ? OFFICER_NAV_ITEMS : activeRole === 'citizen' ? CITIZEN_NAV_ITEMS : [];
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/90 backdrop-blur-xl">
@@ -39,7 +44,7 @@ export function Navbar({ user, onLogout }: NavbarProps) {
         </Link>
 
         <nav className="hidden items-center gap-1 md:flex">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
             return (
@@ -61,6 +66,16 @@ export function Navbar({ user, onLogout }: NavbarProps) {
               </Link>
             );
           })}
+          {!user && (
+            <>
+              <Link href="/login?role=citizen" className="rounded-lg px-3 py-2 text-sm font-medium text-sky-600 hover:bg-sky-500/10">
+                Citizen Login
+              </Link>
+              <Link href="/officer/login" className="rounded-lg px-3 py-2 text-sm font-medium text-violet-600 hover:bg-violet-500/10">
+                Officer Login
+              </Link>
+            </>
+          )}
           {user && onLogout && (
             <button
               type="button"
@@ -88,7 +103,7 @@ export function Navbar({ user, onLogout }: NavbarProps) {
 
       {mobileOpen && (
         <nav className="border-t border-border/60 bg-background px-4 py-3 md:hidden">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
             return (

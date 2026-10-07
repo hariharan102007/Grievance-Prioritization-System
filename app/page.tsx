@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Send, Search, MapPin, Sparkles, TriangleAlert as AlertTriangle, Copy, CircleCheck as CheckCircle2, Loader as Loader2, ArrowRight, Activity, Zap, Globe, Route, UploadCloud, X } from 'lucide-react';
+import { readPortalSession } from '@/lib/portal-auth';
 import {
   supabase,
   type Complaint,
 } from '@/lib/supabase';
+
 import {
   processComplaint,
   type AiResult,
@@ -21,6 +24,19 @@ import { cn } from '@/lib/utils';
 
 export default function Home() {
   const router = useRouter();
+
+  useEffect(() => {
+    const session = readPortalSession();
+    if (!session) {
+      router.replace('/login?role=citizen');
+      return;
+    }
+
+    if (session.role !== 'citizen') {
+      router.replace('/officer');
+    }
+  }, [router]);
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
@@ -446,6 +462,7 @@ export default function Home() {
             </CardContent>
           </Card>
         </div>
+
 
         {/* Recent complaints */}
         {recentComplaints.length > 0 && (

@@ -1,7 +1,0 @@
-{
-  "/page": "app/page.js",
-  "/command/page": "app/command/page.js",
-  "/officer/page": "app/officer/page.js",
-  "/officer/register/page": "app/officer/register/page.js",
-  "/track/[ticketId]/page": "app/track/[ticketId]/page.js"
-}

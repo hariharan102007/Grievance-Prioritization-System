@@ -22,6 +22,7 @@ import {
   HeartPulse,
   Shield,
   HelpCircle,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   supabase,
@@ -248,6 +249,11 @@ export default function DepartmentPage({
             <p className="mt-1 text-sm text-muted-foreground">{theme.desc}</p>
           </div>
         </div>
+        <Link href={`/departments/${encodeURIComponent(deptName)}`}>
+          <Button variant="outline" size="sm" className="gap-2 border-cyan-500/30 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/10">
+            View Public Department Portal Site
+          </Button>
+        </Link>
       </div>
 
       {/* Stats */}
@@ -329,10 +335,37 @@ export default function DepartmentPage({
                           {c.duplicate_count + 1} reports
                         </span>
                       )}
+                      {c.photo_url && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                          <ImageIcon className="h-3 w-3" />
+                          Proof Attached
+                        </span>
+                      )}
                     </div>
                     <p className="mt-2 font-semibold text-foreground">{c.title || 'Complaint'}</p>
                     <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{c.description}</p>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    
+                    {/* Thumbnail preview on card */}
+                    {c.photo_url && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-lg border border-border/80 bg-muted/30">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={c.photo_url}
+                            alt={`Proof thumbnail ${c.ticket_id}`}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1584467735871-8e85353a8413?w=800&auto=format&fit=crop';
+                            }}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                        <span className="text-xs text-sky-600 dark:text-sky-400 font-medium">
+                          Citizen attached photo proof
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{c.category}</span>
                       {c.location && (
                         <>
@@ -357,7 +390,7 @@ export default function DepartmentPage({
 
       {/* Update dialog */}
       <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selected?.ticket_id}
@@ -379,17 +412,37 @@ export default function DepartmentPage({
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</p>
                   <p className="mt-1 text-sm">{selected.description}</p>
                 </div>
-                {selected.photo_url && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Proof of Complaint</p>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={selected.photo_url}
-                      alt={`Proof for ${selected.ticket_id}`}
-                      className="mt-2 max-h-72 w-full rounded-lg border border-border/60 object-contain bg-background"
-                    />
-                  </div>
-                )}
+
+                {/* Proof of complaint image display */}
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <ImageIcon className="h-3.5 w-3.5 text-sky-500" />
+                      Proof of Complaint
+                    </span>
+                    {selected.photo_url && (
+                      <span className="text-[10px] text-sky-500 font-normal">Citizen Attachment</span>
+                    )}
+                  </p>
+                  {selected.photo_url ? (
+                    <div className="relative overflow-hidden rounded-xl border border-border/80 bg-background/90 p-1 group">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={selected.photo_url}
+                        alt={`Proof for ${selected.ticket_id}`}
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1584467735871-8e85353a8413?w=800&auto=format&fit=crop';
+                        }}
+                        className="max-h-72 w-full rounded-lg object-contain bg-black/5 dark:bg-white/5 transition-transform group-hover:scale-[1.01]"
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border/60 p-3 text-center text-xs text-muted-foreground bg-muted/20">
+                      No photo proof uploaded by citizen for this ticket.
+                    </div>
+                  )}
+                </div>
+
                 <div className="text-xs text-muted-foreground">
                   {selected.category}
                   {selected.location && ` • ${selected.location}`}

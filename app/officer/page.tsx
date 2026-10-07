@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   Brain, Zap, Droplet, HardHat, Trash2, HeartPulse, Shield,
   AlertTriangle, Clock, CheckCircle2, TrendingUp, Users, Activity,
   ChevronRight, MapPin, Star, Loader2, RefreshCw, UserPlus,
-  ArrowUp, Minus, ArrowDown, Inbox, Search, Filter
+  ArrowUp, Minus, ArrowDown, Inbox, Search, Filter, Building2, ArrowRight
 } from 'lucide-react';
 import { supabase, type Complaint, PRIORITY_ORDER, STATUS_FLOW } from '@/lib/supabase';
+import { readPortalSession } from '@/lib/portal-auth';
 import { predictSLA, calcPriorityScore, getPriorityColor } from '@/lib/officer-engine';
+import { DEPARTMENTS_DATA, getIconComponent } from '@/lib/departments-data';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -46,6 +49,15 @@ function SLABadge({ sla }: { sla: ReturnType<typeof predictSLA> }) {
 }
 
 export default function OfficerPage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const session = readPortalSession();
+    if (!session || session.role !== 'officer') {
+      router.replace('/officer/login');
+    }
+  }, [router]);
+
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [officers, setOfficers] = useState<Officer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +68,7 @@ export default function OfficerPage() {
   const [newStatus, setNewStatus] = useState('');
   const [remarks, setRemarks] = useState('');
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<'queue'|'officers'|'sla'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue'|'departments'|'officers'|'sla'>('queue');
 
   const loadComplaints = useCallback(async () => {
     setLoading(true);
@@ -79,7 +91,7 @@ export default function OfficerPage() {
       .filter(c => !c.duplicate_of)
       .map(c => ({
         ...c,
-        ai_score: calcPriorityScore({ ...c, created_at: c.created_at }),
+        ai_score: calcPriorityScore({ ...c, department: c.department || '', created_at: c.created_at }),
         sla: predictSLA({ priority: c.priority, department: c.department || '', created_at: c.created_at }),
       }))
   , [complaints]);
@@ -231,16 +243,95 @@ export default function OfficerPage() {
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Tabs */}
-        <div className="mb-6 flex gap-1 rounded-xl border border-border/60 bg-card/40 p-1 w-fit">
-          {(['queue','officers','sla'] as const).map(tab => (
+        <div className="mb-6 flex gap-1 overflow-x-auto rounded-xl border border-border/60 bg-card/40 p-1 w-fit">
+          {(['queue', 'departments', 'officers', 'sla'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={cn('rounded-lg px-4 py-2 text-sm font-medium transition-all',
+              className={cn('rounded-lg px-4 py-2 text-sm font-semibold transition-all whitespace-nowrap',
                 activeTab === tab ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
               )}>
-              {tab === 'queue' ? 'AI Priority Queue' : tab === 'officers' ? 'Officer Roster' : 'SLA Monitor'}
+              {tab === 'queue' ? 'AI Priority Queue' : tab === 'departments' ? 'Department Operations' : tab === 'officers' ? 'Officer Roster' : 'SLA Monitor'}
             </button>
           ))}
         </div>
+
+        {/* Tab: Department Operations */}
+        {activeTab === 'departments' && (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-violet-500" />
+                  Government Department Management
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Select a department to manage officer assignments, triage queues, SLA targets, and departmental operations.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {DEPARTMENTS_DATA.map((dept) => {
+                const Icon = getIconComponent(dept.iconName);
+                const deptComplaints = complaints.filter(c => c.department === dept.name && !c.duplicate_of);
+                const activeCount = deptComplaints.filter(c => c.status !== 'Resolved').length;
+                const criticalCount = deptComplaints.filter(c => c.priority === 'Critical' && c.status !== 'Resolved').length;
+                const resolvedCount = deptComplaints.filter(c => c.status === 'Resolved').length;
+
+                return (
+                  <Card key={dept.slug} className="border-border/60 bg-card/70 backdrop-blur-sm transition-all hover:border-violet-500/40 hover:shadow-lg flex flex-col justify-between">
+                    <CardContent className="p-6 flex flex-col justify-between h-full space-y-5">
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className={cn('flex h-13 w-13 items-center justify-center rounded-2xl border', dept.bg, dept.border)}>
+                            <Icon className={cn('h-6 w-6', dept.color)} />
+                          </div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2.5 py-1 rounded-full border border-violet-500/20">
+                            {dept.targetSlaHours}h SLA Guarantee
+                          </span>
+                        </div>
+                        <h3 className="text-lg font-bold text-foreground">{dept.name}</h3>
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{dept.tagline}</p>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-3 text-center border border-border/40">
+                        <div>
+                          <div className="text-base font-bold text-foreground">{activeCount}</div>
+                          <div className="text-[10px] uppercase font-semibold text-muted-foreground">Active</div>
+                        </div>
+                        <div>
+                          <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">{resolvedCount}</div>
+                          <div className="text-[10px] uppercase font-semibold text-muted-foreground">Resolved</div>
+                        </div>
+                        <div>
+                          <div className={cn("text-base font-bold", criticalCount > 0 ? "text-red-500" : "text-muted-foreground")}>{criticalCount}</div>
+                          <div className="text-[10px] uppercase font-semibold text-muted-foreground">Critical</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 text-xs text-muted-foreground">
+                        <div className="flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5 text-violet-500" />
+                          <span>Chief: {dept.leadOfficer.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                          <Clock className="h-3.5 w-3.5 text-violet-500" />
+                          <span>Helpline: {dept.helpline}</span>
+                        </div>
+                      </div>
+
+                      <Link href={`/officer/department/${encodeURIComponent(dept.name)}`} className="pt-2">
+                        <Button className="w-full gap-2 text-xs font-semibold bg-violet-600 hover:bg-violet-700 text-white shadow-md">
+                          Manage Department Portal
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </Button>
+                      </Link>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Tab: AI Priority Queue */}
         {activeTab === 'queue' && (
@@ -441,6 +532,16 @@ export default function OfficerPage() {
             <DialogDescription>{selected?.ticket_id} � {selected?.department}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {selected?.photo_url && (
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Proof / Photo</div>
+                <div className="mt-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={selected.photo_url} alt={`Proof for ${selected.ticket_id}`} className="max-h-72 w-full object-contain rounded-md border border-border/60" />
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="mb-1.5 block text-sm font-medium">Move to status</label>
               <Select value={newStatus} onValueChange={setNewStatus}>

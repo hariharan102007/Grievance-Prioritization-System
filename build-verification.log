@@ -1,0 +1,48 @@
+
+> nextjs@0.1.0 build
+> next build
+
+   Creating an optimized production build...
+ Γ£ô Compiled successfully
+   Skipping linting
+   Checking validity of types...
+   Collecting page data...
+   Generating static pages (0/13)...
+
+   Generating static pages (3/13)
+
+
+   Generating static pages (6/13)
+
+
+   Generating static pages (9/13)
+
+
+ Γ£ô Generating static pages (13/13)
+   Finalizing page optimization...
+
+Route (app)                              Size     First Load JS
+Γöî Γùï /                                    10.6 kB         111 kB
+Γö£ Γùï /_not-found                          874 B          80.4 kB
+Γö£ Γùï /admin                               111 kB          211 kB
+Γö£ ╬╗ /api/auth/send-otp                   0 B                0 B
+Γö£ ╬╗ /api/auth/verify-otp                 0 B                0 B
+Γö£ Γùï /departments                         8.01 kB         107 kB
+Γö£ ╬╗ /departments/[deptSlug]              11 kB           151 kB
+Γö£ Γùï /login                               272 B           113 kB
+Γö£ Γùï /officer                             11.6 kB         151 kB
+Γö£ ╬╗ /officer/department/[deptName]       9.61 kB         144 kB
+Γö£ Γùï /officer/login                       271 B           113 kB
+Γö£ Γùï /officer/register                    5.04 kB         127 kB
+Γö£ Γùï /officers                            8.57 kB         131 kB
+Γöö ╬╗ /track/[ticketId]                    4.31 kB         113 kB
++ First Load JS shared by all            79.5 kB
+  Γö£ chunks/864-a6812c75dbdc84fa.js       26.6 kB
+  Γö£ chunks/fd9d1056-3d2e25b2a7a590d6.js  50.9 kB
+  Γö£ chunks/main-app-97ee4de6f6aad667.js  226 B
+  Γöö chunks/webpack-254ecf729ebcb8f4.js   1.78 kB
+
+
+╬╗  (Server)  server-side renders at runtime (uses getInitialProps or getServerSideProps)
+Γùï  (Static)  automatically rendered as static HTML (uses no initial props)
+
