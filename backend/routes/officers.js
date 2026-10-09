@@ -4,7 +4,7 @@ const Officer = require('../models/officer');
 const Complaint = require('../models/complaint');
 const { assignOfficer, rankOfficers } = require('../utils/ai-assignment');
 
-// GET /api/officers — list all with workload
+// GET /api/officers ï¿½ list all with workload
 router.get('/', async (req, res) => {
   try {
     const officers = await Officer.find().lean();
@@ -32,7 +32,7 @@ router.get('/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/officers — register new officer
+// POST /api/officers ï¿½ register new officer
 router.post('/', async (req, res) => {
   try {
     const officer = await Officer.create(req.body);
@@ -73,7 +73,7 @@ router.get('/:id/performance', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/officers/assign — AI auto-assign
+// POST /api/officers/assign ï¿½ AI auto-assign
 router.post('/assign', async (req, res) => {
   try {
     const { complaint_id } = req.body;
@@ -91,7 +91,7 @@ router.post('/assign', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/officers/rank/:complaint_id — top 3 officer matches
+// GET /api/officers/rank/:complaint_id ï¿½ top 3 officer matches
 router.get('/rank/:complaint_id', async (req, res) => {
   try {
     const complaint = await Complaint.findById(req.params.complaint_id).lean();

@@ -41,11 +41,6 @@ export function PortalLogin({ role }: { role: PortalRole }) {
     }
 
     const isEmail = trimmedIdentifier.includes('@');
-    if (isEmail && trimmedIdentifier.toLowerCase() === SENDER_EMAIL.toLowerCase()) {
-      toast.error('Enter the recipient email where you want to receive the OTP. Do not use the sending account email.');
-      return;
-    }
-
     const payload = isEmail ? { email: trimmedIdentifier } : { phone: trimmedIdentifier };
 
     setSubmitting(true);

@@ -135,7 +135,7 @@ export default function DepartmentsIndexPage() {
         {filteredDepartments.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border/80 p-12 text-center text-muted-foreground">
             <Building2 className="mx-auto h-10 w-10 opacity-40 mb-3" />
-            <p className="font-semibold">No department matches "{search}"</p>
+            <p className="font-semibold">No department matches &ldquo;{search}&rdquo;</p>
             <p className="text-xs mt-1">Try searching for Water, Power, Sanitation, Police, or Road.</p>
           </div>
         ) : (

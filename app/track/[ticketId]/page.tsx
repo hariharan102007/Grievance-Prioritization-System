@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { ArrowLeft, MapPin, Clock, Building2, Globe, Copy, CircleCheck as CheckCircle2, TriangleAlert as AlertTriangle, Loader as Loader2, Share2, History } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, Building2, Globe, Copy, CircleCheck as CheckCircle2, TriangleAlert as AlertTriangle, Loader as Loader2, Share2, History, QrCode } from 'lucide-react';
 import {
   supabase,
   type Complaint,
@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PriorityBadge, StatusBadge } from '@/components/priority-badge';
+import { ComplaintQrCode } from '@/components/complaint-qr-code';
 import { cn } from '@/lib/utils';
 
 export default function TrackPage() {
@@ -247,8 +248,16 @@ export default function TrackPage() {
             )}
           </div>
 
-          {/* AI metadata */}
+          {/* AI metadata & Mobile QR */}
           <div className="md:col-span-2 space-y-4">
+            <ComplaintQrCode
+              ticketId={complaint.ticket_id}
+              title={complaint.title || undefined}
+              department={complaint.department || undefined}
+              status={complaint.status}
+              priority={complaint.priority}
+            />
+
             <Card className="border-sky-500/20 bg-gradient-to-br from-sky-500/5 to-transparent">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">AI Analysis</CardTitle>

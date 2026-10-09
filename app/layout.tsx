@@ -9,6 +9,11 @@ export const metadata: Metadata = {
   title: 'Grievance Prioritization System',
   description:
     'AI-powered citizen complaint management — automatic categorization, priority scoring, duplicate detection, and routing.',
+  openGraph: {
+    title: 'Grievance Prioritization System',
+    description:
+      'AI-powered citizen complaint management — automatic categorization, priority scoring, duplicate detection, and routing.',
+  },
 };
 
 export default function RootLayout({

@@ -1,0 +1,8 @@
+{
+  "name": "Grievance Prioritization System",
+  "description": "AI-powered citizen complaint management — automatic categorization, priority scoring, duplicate detection, and routing.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ],
+  "permissions": []
+}

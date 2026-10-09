@@ -25,7 +25,20 @@ import {
   X,
   Star,
   Image as ImageIcon,
+  LocateFixed,
+  Crosshair,
+  QrCode,
+  ExternalLink,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { ComplaintQrCode } from '@/components/complaint-qr-code';
+import { detectCurrentGpsLocation } from '@/lib/location-helper';
 import {
   getDepartmentBySlug,
   getIconComponent,
@@ -79,6 +92,7 @@ export default function SeparateDepartmentPage({
   // Board Filter state
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedQrComplaint, setSelectedQrComplaint] = useState<Complaint | null>(null);
 
 
 
@@ -86,9 +100,16 @@ export default function SeparateDepartmentPage({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [detectingGps, setDetectingGps] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [language, setLanguage] = useState<'Auto' | 'English' | 'Hindi' | 'Tamil'>('Auto');
+
+  const handleDetectGps = () => {
+    detectCurrentGpsLocation((res) => {
+      setLocation(res.formattedText);
+    }, setDetectingGps);
+  };
 
   // Existing complaints for duplicate check
   const [existingComplaints, setExistingComplaints] = useState<
@@ -531,13 +552,64 @@ export default function SeparateDepartmentPage({
                           </div>
                         </div>
 
-
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedQrComplaint(c)}
+                            className="h-8 gap-1.5 text-xs border-cyan-500/30 text-cyan-600 hover:bg-cyan-500/10 dark:text-cyan-400"
+                            title="Scan Mobile QR Code"
+                          >
+                            <QrCode className="h-3.5 w-3.5" />
+                            <span>Scan QR</span>
+                          </Button>
+                          <Link href={`/track/${c.ticket_id}`}>
+                            <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs">
+                              <span>Track</span>
+                              <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
               </div>
             )}
+
+            {/* Modal for Mobile QR Code on Department Portal */}
+            <Dialog open={!!selectedQrComplaint} onOpenChange={() => setSelectedQrComplaint(null)}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <div className="flex items-center justify-between">
+                    <DialogTitle className="font-mono text-lg font-bold text-cyan-600 dark:text-cyan-400">
+                      {selectedQrComplaint?.ticket_id}
+                    </DialogTitle>
+                    {selectedQrComplaint && (
+                      <StatusBadge status={selectedQrComplaint.status} />
+                    )}
+                  </div>
+                  <DialogDescription className="text-xs">
+                    Scan with smartphone camera to view live progress on mobile.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {selectedQrComplaint && (
+                  <div className="py-2">
+                    <ComplaintQrCode
+                      ticketId={selectedQrComplaint.ticket_id}
+                      title={selectedQrComplaint.title || ''}
+                      department={selectedQrComplaint.department || ''}
+                      status={selectedQrComplaint.status}
+                      priority={selectedQrComplaint.priority}
+                      size={190}
+                      showCard={false}
+                    />
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
           </div>
         )}
 
@@ -584,15 +656,46 @@ export default function SeparateDepartmentPage({
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                          Location / Address
-                        </label>
-                        <Input
-                          value={location}
-                          onChange={(e) => setLocation(e.target.value)}
-                          placeholder="Street, Ward, Landmark..."
-                          className="mt-1.5"
-                        />
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                            Location / Address
+                          </label>
+                          <button
+                            type="button"
+                            onClick={handleDetectGps}
+                            disabled={detectingGps}
+                            className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-600 transition-colors hover:bg-cyan-500/20 dark:text-cyan-400"
+                            title="Auto-detect GPS location"
+                          >
+                            {detectingGps ? (
+                              <Loader2 className="h-3 w-3 animate-spin text-cyan-500" />
+                            ) : (
+                              <LocateFixed className="h-3 w-3 text-cyan-500" />
+                            )}
+                            <span>{detectingGps ? 'Detecting...' : 'Use GPS'}</span>
+                          </button>
+                        </div>
+                        <div className="relative mt-1.5">
+                          <Input
+                            value={location}
+                            onChange={(e) => setLocation(e.target.value)}
+                            placeholder="Street, Ward, Landmark or click GPS..."
+                            className="pr-9"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleDetectGps}
+                            disabled={detectingGps}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-cyan-500 transition-colors"
+                            title="Detect current location"
+                          >
+                            {detectingGps ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-500" />
+                            ) : (
+                              <Crosshair className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </div>
 
                       <div>

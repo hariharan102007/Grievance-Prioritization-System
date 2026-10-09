@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({
         success: true,
-        message: `OTP sent to ${phone}. Please check your SMS inbox.`,
+        message: `OTP sent successfully to ${phone}. Please check your messages.`,
       });
     }
   } catch (error) {

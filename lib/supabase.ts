@@ -491,10 +491,107 @@ const customAuth = {
   signOut: async () => ({ error: null }),
 };
 
+export const realSupabase =
+  supabaseUrl && supabaseAnonKey
+    ? createClient(supabaseUrl, supabaseAnonKey)
+    : null;
+
+class HybridQueryBuilder {
+  private tableName: string;
+  private realBuilder: any;
+  private mockBuilder: MockQueryBuilder;
+
+  constructor(tableName: string) {
+    this.tableName = tableName;
+    this.realBuilder = realSupabase ? realSupabase.from(tableName) : null;
+    this.mockBuilder = new MockQueryBuilder(tableName);
+  }
+
+  select(fields?: string) {
+    if (this.realBuilder) this.realBuilder = this.realBuilder.select(fields);
+    this.mockBuilder.select(fields);
+    return this;
+  }
+
+  eq(field: string, value: any) {
+    if (this.realBuilder) this.realBuilder = this.realBuilder.eq(field, value);
+    this.mockBuilder.eq(field, value);
+    return this;
+  }
+
+  order(field: string, options?: { ascending?: boolean }) {
+    if (this.realBuilder) this.realBuilder = this.realBuilder.order(field, options);
+    this.mockBuilder.order(field, options);
+    return this;
+  }
+
+  limit(val: number) {
+    if (this.realBuilder) this.realBuilder = this.realBuilder.limit(val);
+    this.mockBuilder.limit(val);
+    return this;
+  }
+
+  maybeSingle() {
+    if (this.realBuilder) this.realBuilder = this.realBuilder.maybeSingle();
+    this.mockBuilder.maybeSingle();
+    return this;
+  }
+
+  async insert(payload: any) {
+    if (this.realBuilder) {
+      try {
+        const res = await this.realBuilder.insert(payload);
+        if (!res.error) {
+          // Also sync to mock store so local views immediately have it
+          await this.mockBuilder.insert(payload);
+          return res;
+        }
+      } catch (err) {
+        console.warn(`[Supabase insert fallback for ${this.tableName}]:`, err);
+      }
+    }
+    return this.mockBuilder.insert(payload);
+  }
+
+  update(updates: any) {
+    if (this.realBuilder) this.realBuilder = this.realBuilder.update(updates);
+    this.mockBuilder.update(updates);
+    return this;
+  }
+
+  async delete() {
+    if (this.realBuilder) {
+      try {
+        const res = await this.realBuilder.delete();
+        if (!res.error) return res;
+      } catch {}
+    }
+    return this.mockBuilder.delete();
+  }
+
+  then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
+    return this.execute().then(onfulfilled, onrejected);
+  }
+
+  async execute() {
+    if (this.realBuilder) {
+      try {
+        const res = await this.realBuilder;
+        if (!res.error && res.data !== null && (Array.isArray(res.data) ? res.data.length > 0 : true)) {
+          return res;
+        }
+      } catch (err) {
+        console.warn(`[Supabase execute fallback for ${this.tableName}]:`, err);
+      }
+    }
+    return this.mockBuilder.execute();
+  }
+}
+
 export const supabase = {
   auth: customAuth,
   from(tableName: string) {
-    return new MockQueryBuilder(tableName);
+    return new HybridQueryBuilder(tableName);
   },
 };
 

@@ -23,6 +23,12 @@ import {
   Shield,
   HelpCircle,
   Image as ImageIcon,
+  QrCode,
+  ExternalLink,
+  MapPin,
+  Copy,
+  Check,
+  Sparkles,
 } from 'lucide-react';
 import {
   supabase,
@@ -50,6 +56,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { ComplaintQrCode } from '@/components/complaint-qr-code';
 import { cn } from '@/lib/utils';
 
 const DEPT_THEME: Record<
@@ -113,11 +120,15 @@ export default function DepartmentPage({
 }) {
   const deptName = decodeURIComponent(params.deptName);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [officers, setOfficers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Complaint | null>(null);
+  const [modalTab, setModalTab] = useState<'overview' | 'actions' | 'qr'>('overview');
   const [newStatus, setNewStatus] = useState<string>('');
+  const [newPriority, setNewPriority] = useState<string>('Medium');
+  const [assignedOfficer, setAssignedOfficer] = useState<string>('');
   const [remarks, setRemarks] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -135,16 +146,26 @@ export default function DepartmentPage({
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('complaints')
-      .select('*')
-      .eq('department', deptName)
-      .order('created_at', { ascending: false });
+    const [cRes, oRes] = await Promise.all([
+      supabase
+        .from('complaints')
+        .select('*')
+        .eq('department', deptName)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('officers')
+        .select('*')
+        .order('name', { ascending: true }),
+    ]);
 
-    if (error) {
+    if (cRes.error) {
       toast.error('Failed to load complaints');
     } else {
-      setComplaints((data || []) as Complaint[]);
+      setComplaints((cRes.data || []) as Complaint[]);
+    }
+
+    if (oRes.data) {
+      setOfficers(oRes.data);
     }
     setLoading(false);
   }, [deptName]);
@@ -155,19 +176,20 @@ export default function DepartmentPage({
 
   const filtered = useMemo(() => {
     return complaints
-      .filter((c) => !c.duplicate_of) // duplicates are merged; hide from queue
+      .filter((c) => !c.duplicate_of)
       .filter((c) => (statusFilter === 'all' ? true : c.status === statusFilter))
       .filter((c) =>
         search.trim()
           ? c.description.toLowerCase().includes(search.toLowerCase()) ||
-            c.ticket_id.toLowerCase().includes(search.toLowerCase())
+            c.ticket_id.toLowerCase().includes(search.toLowerCase()) ||
+            (c.title || '').toLowerCase().includes(search.toLowerCase())
           : true
       )
       .sort((a, b) => {
         const pa = PRIORITY_ORDER[a.priority] ?? 99;
         const pb = PRIORITY_ORDER[b.priority] ?? 99;
         if (pa !== pb) return pa - pb;
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       });
   }, [complaints, statusFilter, search]);
 
@@ -181,11 +203,39 @@ export default function DepartmentPage({
     };
   }, [complaints]);
 
-  function openUpdate(c: Complaint) {
+  const QUICK_REMARKS = [
+    'Field inspection team dispatched to site.',
+    'Investigation completed. Maintenance work underway.',
+    'Awaiting replacement materials from municipal depot.',
+    'Citizen contacted; preliminary updates shared.',
+    'Work completed successfully and verified on site.',
+    'Issue escalated to zonal senior engineer.',
+  ];
+
+  function openUpdate(c: Complaint, initialTab: 'overview' | 'actions' | 'qr' = 'overview') {
     setSelected(c);
-    const idx = STATUS_FLOW.indexOf(c.status as (typeof STATUS_FLOW)[number]);
-    setNewStatus(STATUS_FLOW[Math.min(idx + 1, STATUS_FLOW.length - 1)]);
+    setModalTab(initialTab);
+    setNewStatus(c.status);
+    setNewPriority(c.priority || 'Medium');
+    setAssignedOfficer((c as any).assigned_officer_id || '');
     setRemarks(c.officer_remarks || '');
+  }
+
+  function handleAutoAssign() {
+    if (!selected) return;
+    const deptOfficers = officers.filter(
+      (o) => !selected.department || o.department === selected.department
+    );
+    const pool = deptOfficers.length > 0 ? deptOfficers : officers;
+    if (pool.length === 0) {
+      toast.error('No registered officers available in roster.');
+      return;
+    }
+    const best = [...pool].sort(
+      (a, b) => (a.current_complaints - b.current_complaints) || (b.overall_score - a.overall_score)
+    )[0];
+    setAssignedOfficer(best._id);
+    toast.success(`AI assigned to Officer ${best.name} (${best.designation})`);
   }
 
   async function handleSave() {
@@ -194,9 +244,15 @@ export default function DepartmentPage({
     try {
       const updates: Record<string, unknown> = {
         status: newStatus,
+        priority: newPriority,
         officer_remarks: remarks.trim() || null,
         updated_at: new Date().toISOString(),
       };
+      if (assignedOfficer) {
+        updates.assigned_officer_id = assignedOfficer;
+        const matched = officers.find((o) => o._id === assignedOfficer);
+        if (matched) updates.assigned_officer_name = matched.name;
+      }
       if (newStatus === 'Resolved') {
         updates.resolved_at = new Date().toISOString();
       }
@@ -208,13 +264,13 @@ export default function DepartmentPage({
 
       await supabase.from('audit_logs').insert({
         complaint_id: selected.id,
-        action: `Status updated to ${newStatus}`,
+        action: `Status: ${newStatus}, Priority: ${newPriority}`,
         from_status: selected.status,
         to_status: newStatus,
         remarks: remarks.trim() || null,
       });
 
-      toast.success(`${selected.ticket_id} → ${newStatus}`);
+      toast.success(`Complaint ${selected.ticket_id} updated successfully!`);
       setSelected(null);
       await load();
     } catch (err) {
@@ -311,9 +367,10 @@ export default function DepartmentPage({
           {filtered.map((c, i) => (
             <Card
               key={c.id}
+              onClick={() => openUpdate(c, 'overview')}
               className={cn(
-                'animate-slide-up border-border/60 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md',
-                c.priority === 'Critical' && 'border-red-500/30 bg-red-500/[0.02]'
+                'group cursor-pointer animate-slide-up border-border/60 transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-500/50 hover:shadow-lg',
+                c.priority === 'Critical' && 'border-red-500/40 bg-red-500/[0.03]'
               )}
               style={{ animationDelay: `${Math.min(i * 0.04, 0.4)}s` }}
             >
@@ -342,7 +399,9 @@ export default function DepartmentPage({
                         </span>
                       )}
                     </div>
-                    <p className="mt-2 font-semibold text-foreground">{c.title || 'Complaint'}</p>
+                    <p className="mt-2 font-semibold text-foreground group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors">
+                      {c.title || 'Complaint'}
+                    </p>
                     <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{c.description}</p>
                     
                     {/* Thumbnail preview on card */}
@@ -370,17 +429,45 @@ export default function DepartmentPage({
                       {c.location && (
                         <>
                           <span>•</span>
-                          <span>{c.location}</span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3 text-sky-500" />
+                            {c.location}
+                          </span>
                         </>
                       )}
                       <span>•</span>
                       <span>{timeAgo(c.created_at)}</span>
                     </div>
                   </div>
-                  <Button onClick={() => openUpdate(c)} variant="outline" size="sm" className="gap-2 shrink-0">
-                    <MessageSquare className="h-4 w-4" />
-                    Update
-                  </Button>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openUpdate(c, 'qr');
+                      }}
+                      className="h-8 gap-1.5 text-xs border-sky-500/30 text-sky-600 hover:bg-sky-500/10 dark:text-sky-400"
+                      title="Scan Mobile QR Code"
+                    >
+                      <QrCode className="h-3.5 w-3.5" />
+                      <span>Scan QR</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openUpdate(c, 'actions');
+                      }}
+                      className="h-8 gap-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white shadow-sm"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      <span>Manage Options</span>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -388,96 +475,387 @@ export default function DepartmentPage({
         </div>
       )}
 
-      {/* Update dialog */}
-      <Dialog open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {selected?.ticket_id}
-              <StatusBadge status={selected?.status || ''} />
-              <PriorityBadge priority={selected?.priority || ''} />
-            </DialogTitle>
-            <DialogDescription>
-              Update the status and add remarks for this complaint.
-            </DialogDescription>
-          </DialogHeader>
-          {selected && (
-            <div className="space-y-4">
-              <div className="rounded-lg border border-border/60 bg-muted/40 p-3 space-y-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Title</p>
-                  <p className="mt-1 text-sm font-semibold">{selected.title || 'Untitled complaint'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Description</p>
-                  <p className="mt-1 text-sm">{selected.description}</p>
-                </div>
+      {/* Comprehensive Scrollable Department Complaint Modal */}
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="sm:max-w-3xl lg:max-w-4xl max-h-[92vh] flex flex-col p-0 overflow-hidden bg-background border-border/80 shadow-2xl">
+          {/* Header */}
+          <div className="border-b border-border/60 bg-muted/30 p-5 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 pr-8">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="font-mono text-xl font-bold text-sky-600 dark:text-sky-400">
+                  {selected?.ticket_id}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selected?.ticket_id) {
+                      navigator.clipboard.writeText(selected.ticket_id);
+                      toast.success(`Copied ticket ID ${selected.ticket_id}`);
+                    }
+                  }}
+                  title="Copy Ticket ID"
+                  className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+                {selected?.status && <StatusBadge status={selected.status} />}
+                {selected?.priority && <PriorityBadge priority={selected.priority} />}
+                {selected?.department && (
+                  <span className="rounded-full bg-sky-500/10 px-2.5 py-0.5 text-xs font-semibold text-sky-600 dark:text-sky-400">
+                    {selected.department}
+                  </span>
+                )}
+              </div>
 
-                {/* Proof of complaint image display */}
-                <div className="space-y-1.5">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <ImageIcon className="h-3.5 w-3.5 text-sky-500" />
-                      Proof of Complaint
-                    </span>
-                    {selected.photo_url && (
-                      <span className="text-[10px] text-sky-500 font-normal">Citizen Attachment</span>
-                    )}
-                  </p>
-                  {selected.photo_url ? (
-                    <div className="relative overflow-hidden rounded-xl border border-border/80 bg-background/90 p-1 group">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={selected.photo_url}
-                        alt={`Proof for ${selected.ticket_id}`}
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1584467735871-8e85353a8413?w=800&auto=format&fit=crop';
-                        }}
-                        className="max-h-72 w-full rounded-lg object-contain bg-black/5 dark:bg-white/5 transition-transform group-hover:scale-[1.01]"
-                      />
+              <div className="flex items-center gap-2">
+                <Link
+                  href={`/track/${selected?.ticket_id}`}
+                  target="_blank"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-600 hover:bg-sky-500/20 dark:text-sky-400 transition-colors"
+                >
+                  <QrCode className="h-3.5 w-3.5" />
+                  <span>Public QR & Tracking</span>
+                  <ExternalLink className="h-3 w-3" />
+                </Link>
+              </div>
+            </div>
+
+            {/* Modal Tabs */}
+            <div className="mt-4 flex gap-1 border-b border-border/50">
+              <button
+                type="button"
+                onClick={() => setModalTab('overview')}
+                className={cn(
+                  'border-b-2 px-3.5 py-2 text-xs font-semibold transition-all',
+                  modalTab === 'overview'
+                    ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-bold'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                Overview & Evidence
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('actions')}
+                className={cn(
+                  'border-b-2 px-3.5 py-2 text-xs font-semibold transition-all',
+                  modalTab === 'actions'
+                    ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-bold'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                Officer Actions & Options
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('qr')}
+                className={cn(
+                  'border-b-2 px-3.5 py-2 text-xs font-semibold transition-all inline-flex items-center gap-1.5',
+                  modalTab === 'qr'
+                    ? 'border-sky-600 text-sky-600 dark:text-sky-400 font-bold'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <QrCode className="h-3.5 w-3.5" />
+                Mobile QR Code
+              </button>
+            </div>
+          </div>
+
+          {/* Scrollable Modal Content */}
+          <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 max-h-[calc(92vh-140px)]">
+            {selected && modalTab === 'overview' && (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-3">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Title</span>
+                    <h3 className="mt-1 text-base font-semibold text-foreground">
+                      {selected.title || 'Citizen Grievance Submission'}
+                    </h3>
+                  </div>
+
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Description</span>
+                    <p className="mt-1 text-sm leading-relaxed text-foreground whitespace-pre-wrap bg-background/60 p-3 rounded-lg border border-border/40">
+                      {selected.description}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                    <div className="rounded-lg bg-background p-2.5 border border-border/50">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Category</span>
+                      <p className="text-xs font-semibold text-foreground mt-0.5">{selected.category || 'General'}</p>
                     </div>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border/60 p-3 text-center text-xs text-muted-foreground bg-muted/20">
-                      No photo proof uploaded by citizen for this ticket.
+                    <div className="rounded-lg bg-background p-2.5 border border-border/50">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Department</span>
+                      <p className="text-xs font-semibold text-foreground mt-0.5">{selected.department || 'Unassigned'}</p>
+                    </div>
+                    <div className="rounded-lg bg-background p-2.5 border border-border/50">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Sentiment</span>
+                      <p className="text-xs font-semibold capitalize text-foreground mt-0.5">{selected.sentiment || 'Neutral'}</p>
+                    </div>
+                    <div className="rounded-lg bg-background p-2.5 border border-border/50">
+                      <span className="text-[10px] uppercase font-bold text-muted-foreground">Filed Date</span>
+                      <p className="text-xs font-semibold text-foreground mt-0.5">
+                        {new Date(selected.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selected.location && (
+                    <div className="rounded-lg bg-background p-3 border border-border/50 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <MapPin className="h-4 w-4 text-sky-500 shrink-0" />
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-muted-foreground">Location & GPS</span>
+                          <p className="text-xs font-medium text-foreground">{selected.location}</p>
+                        </div>
+                      </div>
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selected.location)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-500"
+                      >
+                        <span>Open in Maps</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
                     </div>
                   )}
                 </div>
 
-                <div className="text-xs text-muted-foreground">
-                  {selected.category}
-                  {selected.location && ` • ${selected.location}`}
+                {/* Proof Photo */}
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <ImageIcon className="h-4 w-4 text-sky-500" />
+                      Citizen Photo Proof
+                    </span>
+                    {selected.photo_url && (
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Attachment Verified</span>
+                    )}
+                  </div>
+                  {selected.photo_url ? (
+                    <div className="relative rounded-lg overflow-hidden border border-border/70 bg-black/5 dark:bg-black/30 p-1 flex justify-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={selected.photo_url}
+                        alt={`Proof for ${selected.ticket_id}`}
+                        className="max-h-72 w-full object-contain rounded-md"
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground bg-background/50">
+                      No photographic proof attached by citizen for this ticket.
+                    </div>
+                  )}
+                </div>
+
+                {/* Existing remarks if any */}
+                {selected.officer_remarks && (
+                  <div className="rounded-xl border border-border/60 bg-sky-500/5 p-4 space-y-1.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-sky-600 dark:text-sky-400">
+                      Previous Officer Remarks
+                    </span>
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
+                      {selected.officer_remarks}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {selected && modalTab === 'actions' && (
+              <div className="space-y-6">
+                {/* Status flow selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Workflow Status
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {STATUS_FLOW.map((s) => {
+                      const isCurrent = newStatus === s;
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setNewStatus(s)}
+                          className={cn(
+                            'rounded-xl border p-3 text-left transition-all',
+                            isCurrent
+                              ? 'border-sky-600 bg-sky-500/10 text-sky-700 dark:text-sky-300 ring-2 ring-sky-500/20 font-bold'
+                              : 'border-border/60 bg-card hover:bg-muted/40 text-muted-foreground'
+                          )}
+                        >
+                          <div className="text-xs font-bold">{s}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            {s === 'Registered' && 'New grievance'}
+                            {s === 'Assigned' && 'Officer allocated'}
+                            {s === 'In Progress' && 'Under active repair'}
+                            {s === 'Resolved' && 'Closed & verified'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Priority selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Priority Level
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(['Critical', 'High', 'Medium', 'Low'] as const).map((p) => {
+                      const isCurrent = newPriority === p;
+                      const badgeColors: Record<string, string> = {
+                        Critical: 'border-red-500 bg-red-500/10 text-red-600',
+                        High: 'border-orange-500 bg-orange-500/10 text-orange-600',
+                        Medium: 'border-amber-500 bg-amber-500/10 text-amber-600',
+                        Low: 'border-blue-500 bg-blue-500/10 text-blue-600',
+                      };
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setNewPriority(p)}
+                          className={cn(
+                            'rounded-xl border p-2.5 text-center text-xs font-bold transition-all',
+                            isCurrent
+                              ? `${badgeColors[p]} ring-2 ring-sky-500/30`
+                              : 'border-border/60 bg-card hover:bg-muted/40 text-muted-foreground'
+                          )}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Officer Assignment */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Assign to Department Officer
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAutoAssign}
+                      className="inline-flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-500 dark:text-sky-400"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span>AI Auto-Assign</span>
+                    </button>
+                  </div>
+                  <Select value={assignedOfficer} onValueChange={setAssignedOfficer}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select officer from roster..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Unassigned</SelectItem>
+                      {officers.map((o) => (
+                        <SelectItem key={o._id} value={o._id}>
+                          {o.name} • {o.designation} ({o.department}) — {o.current_complaints} active
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Quick Action Remarks Chips */}
+                <div className="space-y-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Quick Action Presets (Click to insert)
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {QUICK_REMARKS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setRemarks((prev) => (prev ? `${prev}\n${preset}` : preset));
+                        }}
+                        className="rounded-full border border-border/80 bg-muted/40 px-3 py-1 text-xs text-muted-foreground hover:bg-sky-500/10 hover:text-sky-600 hover:border-sky-500/30 transition-all text-left"
+                      >
+                        + {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Officer remarks textarea */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Officer Remarks & Official Resolution Notes
+                  </label>
+                  <Textarea
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="Enter action taken, investigation outcome, citizen communication, or field dispatch notes..."
+                    className="min-h-[110px] resize-none"
+                  />
                 </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">New Status</label>
-                <Select value={newStatus} onValueChange={setNewStatus}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_FLOW.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Remarks</label>
-                <Textarea
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Add internal remarks or resolution notes..."
-                  className="min-h-[80px]"
+            )}
+
+            {selected && modalTab === 'qr' && (
+              <div className="space-y-6 flex flex-col items-center justify-center py-4">
+                <ComplaintQrCode
+                  ticketId={selected.ticket_id}
+                  title={selected.title || ''}
+                  department={selected.department || ''}
+                  status={selected.status}
+                  priority={selected.priority}
+                  size={200}
+                  showCard={false}
                 />
+
+                <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 max-w-md text-center space-y-1">
+                  <p className="text-xs font-semibold text-sky-700 dark:text-sky-300">
+                    Mobile Phone Verification & Live Tracking
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Scan with standard iOS Camera app or Google Lens on Android. The mobile phone directly displays real-time grievance stages, SLA timeline, and officer updates.
+                  </p>
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Sticky Footer */}
+          <DialogFooter className="p-4 border-t border-border/60 bg-muted/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setNewStatus('Resolved');
+                  toast.info('Status set to Resolved. Click "Save Updates" to commit.');
+                }}
+                className="text-xs text-emerald-600 hover:bg-emerald-500/10 border-emerald-500/30"
+              >
+                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5 text-emerald-500" />
+                1-Click Resolve
+              </Button>
             </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSelected(null)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={saving} className="gap-2">
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-              Save Update
-            </Button>
+
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setSelected(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSave}
+                disabled={saving}
+                className="gap-2 bg-sky-600 hover:bg-sky-700 text-white"
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Save Updates
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

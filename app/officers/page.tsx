@@ -55,15 +55,15 @@ export default function OfficersDirectoryPage() {
   async function loadOfficers() {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/officers');
+      const res = await fetch('/api/officers');
       if (res.ok) {
         setOfficers(await res.json());
       } else {
-        toast.error('Could not load officers from the backend.');
+        toast.error('Could not load officers.');
       }
     } catch (err) {
       console.error(err);
-      toast.error('Backend server is offline or unreachable.');
+      toast.error('Officer service is unreachable.');
     } finally {
       setLoading(false);
     }
@@ -80,7 +80,7 @@ export default function OfficersDirectoryPage() {
     }
     setSubmitting(true);
     try {
-      const res = await fetch('http://localhost:5000/api/officers', {
+      const res = await fetch('/api/officers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -113,7 +113,7 @@ export default function OfficersDirectoryPage() {
     if (!editing) return;
     setSaving(true);
     try {
-      const res = await fetch(`http://localhost:5000/api/officers/${editing._id}`, {
+      const res = await fetch(`/api/officers/${editing._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editing),

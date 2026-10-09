@@ -40,7 +40,7 @@ router.post('/translate', async (req, res) => {
   }
 });
 
-// POST /api/seed  – seeds default English + Tamil translations
+// POST /api/seed  ï¿½ seeds default English + Tamil translations
 router.post('/seed', async (req, res) => {
   const defaults = [
     // English

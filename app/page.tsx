@@ -4,8 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Send, Search, MapPin, Sparkles, TriangleAlert as AlertTriangle, Copy, CircleCheck as CheckCircle2, Loader as Loader2, ArrowRight, Activity, Zap, Globe, Route, UploadCloud, X } from 'lucide-react';
+import { Send, Search, MapPin, Sparkles, TriangleAlert as AlertTriangle, Copy, CircleCheck as CheckCircle2, Loader as Loader2, ArrowRight, Activity, Zap, Globe, Route, UploadCloud, X, LocateFixed, Crosshair, QrCode } from 'lucide-react';
 import { readPortalSession } from '@/lib/portal-auth';
+import { detectCurrentGpsLocation } from '@/lib/location-helper';
 import {
   supabase,
   type Complaint,
@@ -19,7 +20,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { PriorityBadge, StatusBadge } from '@/components/priority-badge';
+import { ComplaintQrCode } from '@/components/complaint-qr-code';
 import { cn } from '@/lib/utils';
 
 export default function Home() {
@@ -40,9 +43,19 @@ export default function Home() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [gpsCoords, setGpsCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [detectingGps, setDetectingGps] = useState(false);
   const [photo, setPhoto] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [language, setLanguage] = useState<'Auto' | 'English' | 'Hindi' | 'Tamil'>('Auto');
+  const [selectedQrComplaint, setSelectedQrComplaint] = useState<Complaint | null>(null);
+
+  const handleDetectGps = () => {
+    detectCurrentGpsLocation((res) => {
+      setLocation(res.formattedText);
+      setGpsCoords({ lat: res.lat, lng: res.lng });
+    }, setDetectingGps);
+  };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -106,6 +119,8 @@ export default function Home() {
         priority: result.priority,
         status: result.duplicateOf ? 'Assigned' : 'Registered',
         location: location.trim() || null,
+        lat: gpsCoords?.lat || null,
+        lng: gpsCoords?.lng || null,
         language: language === 'Auto' ? result.language : language,
         sentiment: result.sentiment,
         duplicate_of: result.duplicateOf,
@@ -267,17 +282,46 @@ export default function Home() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">
-                      Location <span className="text-muted-foreground">(optional)</span>
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-medium">
+                        Location <span className="text-muted-foreground">(optional)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleDetectGps}
+                        disabled={detectingGps}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-600 transition-colors hover:bg-sky-500/20 dark:text-sky-400"
+                        title="Click to automatically detect your current GPS location"
+                      >
+                        {detectingGps ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-sky-500" />
+                        ) : (
+                          <LocateFixed className="h-3.5 w-3.5 text-sky-500" />
+                        )}
+                        <span>{detectingGps ? 'Detecting Location...' : 'Use Current GPS'}</span>
+                      </button>
+                    </div>
                     <div className="relative">
                       <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         value={location}
                         onChange={(e) => setLocation(e.target.value)}
-                        placeholder="e.g. Near Government School, Sector 7"
-                        className="pl-9"
+                        placeholder="e.g. Near Government School, Sector 7 or use GPS button"
+                        className="pl-9 pr-10"
                       />
+                      <button
+                        type="button"
+                        onClick={handleDetectGps}
+                        disabled={detectingGps}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-sky-500 transition-colors"
+                        title="Auto-detect GPS location"
+                      >
+                        {detectingGps ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-sky-500" />
+                        ) : (
+                          <Crosshair className="h-4 w-4" />
+                        )}
+                      </button>
                     </div>
                   </div>
 
@@ -467,38 +511,97 @@ export default function Home() {
         {/* Recent complaints */}
         {recentComplaints.length > 0 && (
           <div className="mt-12">
-            <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
-              <Activity className="h-5 w-5 text-sky-500" />
-              Recently Filed Complaints
-            </h2>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-lg font-semibold">
+                <Activity className="h-5 w-5 text-sky-500" />
+                Recently Filed Complaints
+              </h2>
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <QrCode className="h-3.5 w-3.5 text-sky-500" />
+                Every complaint includes a scannable mobile QR code
+              </span>
+            </div>
             <div className="grid gap-3">
               {recentComplaints.map((c) => (
-                <a key={c.id} href={`/track/${c.ticket_id}`} className="group block">
+                <div key={c.id} className="group relative block">
                   <Card className="border-border/60 transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-500/40 hover:shadow-md">
-                    <CardContent className="flex items-center justify-between gap-4 p-4">
-                      <div className="min-w-0 flex-1">
+                    <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
+                      <Link href={`/track/${c.ticket_id}`} className="min-w-0 flex-1 block">
                         <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs font-semibold text-sky-600 dark:text-sky-400">
+                          <span className="font-mono text-xs font-bold text-sky-600 dark:text-sky-400">
                             {c.ticket_id}
                           </span>
                           <StatusBadge status={c.status} />
                           <PriorityBadge priority={c.priority} />
                         </div>
-                        <p className="mt-1.5 truncate text-sm text-muted-foreground">
+                        <p className="mt-1.5 truncate text-sm text-muted-foreground font-medium">
                           {c.description}
                         </p>
                         <div className="mt-1 text-xs text-muted-foreground">
                           {c.category} • {c.department}
                         </div>
+                      </Link>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedQrComplaint(c)}
+                          className="h-8 gap-1.5 text-xs border-sky-500/30 text-sky-600 hover:bg-sky-500/10 dark:text-sky-400"
+                          title="Scan Mobile Status QR Code"
+                        >
+                          <QrCode className="h-3.5 w-3.5" />
+                          <span>Scan QR</span>
+                        </Button>
+
+                        <Link href={`/track/${c.ticket_id}`}>
+                          <Button size="sm" variant="ghost" className="h-8 gap-1 text-xs">
+                            <span>Track</span>
+                            <ArrowRight className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-1" />
+                          </Button>
+                        </Link>
                       </div>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
                     </CardContent>
                   </Card>
-                </a>
+                </div>
               ))}
             </div>
           </div>
         )}
+
+        {/* Modal for Mobile QR Code on Home Page */}
+        <Dialog open={!!selectedQrComplaint} onOpenChange={() => setSelectedQrComplaint(null)}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <DialogTitle className="font-mono text-lg font-bold text-sky-600 dark:text-sky-400">
+                  {selectedQrComplaint?.ticket_id}
+                </DialogTitle>
+                {selectedQrComplaint && (
+                  <StatusBadge status={selectedQrComplaint.status} />
+                )}
+              </div>
+              <DialogDescription className="text-xs">
+                Scan with your smartphone camera to view live progress on mobile.
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedQrComplaint && (
+              <div className="py-2">
+                <ComplaintQrCode
+                  ticketId={selectedQrComplaint.ticket_id}
+                  title={selectedQrComplaint.title || ''}
+                  department={selectedQrComplaint.department || ''}
+                  status={selectedQrComplaint.status}
+                  priority={selectedQrComplaint.priority}
+                  size={190}
+                  showCard={false}
+                />
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </section>
     </div>
   );

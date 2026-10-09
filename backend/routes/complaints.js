@@ -18,7 +18,7 @@ router.get('/', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/complaints/priority-queue — AI ranked list
+// GET /api/complaints/priority-queue ï¿½ AI ranked list
 router.get('/priority-queue', async (req, res) => {
   try {
     const open = await Complaint.find({
@@ -32,7 +32,7 @@ router.get('/priority-queue', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// GET /api/complaints/sla-risk — SLA predictions
+// GET /api/complaints/sla-risk ï¿½ SLA predictions
 router.get('/sla-risk', async (req, res) => {
   try {
     const open = await Complaint.find({
@@ -76,7 +76,7 @@ router.put('/:id/status', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/complaints — create new
+// POST /api/complaints ï¿½ create new
 router.post('/', async (req, res) => {
   try {
     const c = await Complaint.create(req.body);
