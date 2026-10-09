@@ -29,27 +29,57 @@ export default function TrackPage() {
   useEffect(() => {
     (async () => {
       setLoading(true);
+      setNotFound(false);
+
+      const cleanTicket = (ticketId || '').trim().toUpperCase();
+
+      // 1. Direct fetch from backend database API
+      try {
+        const res = await fetch(`/api/complaints/${encodeURIComponent(cleanTicket)}`);
+        if (res.ok) {
+          const compData = await res.json();
+          if (compData && compData.ticket_id) {
+            setComplaint(compData as Complaint);
+            // Fetch audit logs
+            const logRes = await fetch(`/api/audit-logs?complaint_id=${encodeURIComponent(compData.id)}`);
+            if (logRes.ok) {
+              const logData = await logRes.json();
+              if (Array.isArray(logData)) setLogs(logData);
+            }
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (directErr) {
+        console.warn('[Direct API fetch note]:', directErr);
+      }
+
+      // 2. Query via Supabase client layer
       const { data, error } = await supabase
         .from('complaints')
         .select('*')
-        .eq('ticket_id', ticketId.toUpperCase())
+        .eq('ticket_id', cleanTicket)
         .maybeSingle();
+
       if (error) {
         toast.error('Failed to load complaint');
         setLoading(false);
         return;
       }
+
       if (!data) {
         setNotFound(true);
         setLoading(false);
         return;
       }
+
       setComplaint(data as Complaint);
       const { data: logData } = await supabase
         .from('audit_logs')
         .select('*')
         .eq('complaint_id', (data as Complaint).id)
         .order('created_at', { ascending: true });
+
       if (logData) setLogs(logData as AuditLog[]);
       setLoading(false);
     })();
@@ -189,7 +219,13 @@ export default function TrackPage() {
                       <div>
                         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Proof / Photo</div>
                         <div className="mt-2">
-                          <img src={complaint.photo_url} alt={`Proof for ${complaint.ticket_id}`} className="max-h-80 w-full object-contain rounded-md border border-border/60" />
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={complaint.photo_url}
+                            alt={`Proof for ${complaint.ticket_id}`}
+                            referrerPolicy="no-referrer"
+                            className="max-h-80 w-full object-contain rounded-md border border-border/60"
+                          />
                         </div>
                       </div>
                     )}

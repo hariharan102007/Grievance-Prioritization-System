@@ -4,7 +4,7 @@ import { verifyOtpCode } from '@/lib/otp-service';
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
-  let body: { email?: string; phone?: string; token?: string; otp?: string };
+  let body: { email?: string; phone?: string; token?: string; otp?: string; proof?: string };
   try {
     body = await request.json();
   } catch {
@@ -14,6 +14,16 @@ export async function POST(request: Request) {
   const email = body.email?.trim();
   const phone = body.phone?.trim();
   const token = (body.token || body.otp || '').trim();
+
+  // Extract proof from request body or cookie
+  let proof = body.proof?.trim();
+  if (!proof) {
+    const cookieHeader = request.headers.get('cookie') || '';
+    const match = cookieHeader.match(/grievance_otp_proof=([^;]+)/);
+    if (match) {
+      proof = decodeURIComponent(match[1]);
+    }
+  }
 
   const targetIdentifier = email || phone || '';
 
@@ -27,18 +37,18 @@ export async function POST(request: Request) {
 
   let isValid: boolean;
   try {
-    isValid = await verifyOtpCode(targetIdentifier, token);
+    isValid = await verifyOtpCode(targetIdentifier, token, proof);
   } catch (error) {
     console.error('[OTP verification failed]', error);
     return NextResponse.json(
-      { error: 'OTP service is unavailable. Check MongoDB settings in Vercel.' },
+      { error: 'OTP verification error. Please try again or use demo code 123456.' },
       { status: 500 }
     );
   }
 
   if (!isValid) {
     return NextResponse.json(
-      { error: 'Invalid or expired OTP. Please check the code sent to your email and try again.' },
+      { error: 'Invalid or expired OTP. Please enter the correct 6-digit code or demo code 123456.' },
       { status: 400 }
     );
   }
@@ -46,7 +56,7 @@ export async function POST(request: Request) {
   const userEmail = email || `${phone}@phone.user`;
   const name = userEmail.includes('@') ? userEmail.split('@')[0] : 'Citizen User';
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     success: true,
     user: {
       id: 'usr_' + Math.random().toString(36).substring(2, 11),
@@ -54,4 +64,12 @@ export async function POST(request: Request) {
       name,
     },
   });
+
+  // Clear OTP proof cookie upon successful verification
+  response.cookies.set('grievance_otp_proof', '', {
+    path: '/',
+    maxAge: 0,
+  });
+
+  return response;
 }

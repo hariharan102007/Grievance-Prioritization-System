@@ -20,7 +20,15 @@ export async function POST(request: Request) {
 
   const targetIdentifier = email || phone || '';
   try {
-    const otp = await generateOtp(targetIdentifier);
+    const { otp, proof, expiresAt } = await generateOtp(targetIdentifier);
+
+    // Detect if real mail server is configured
+    const hasRealMailConfig =
+      Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) ||
+      Boolean(process.env.SMTP_HOST && process.env.SMTP_USER) ||
+      Boolean(process.env.RESEND_API_KEY);
+
+    let deliveryMessage = '';
 
     if (email) {
       const result = await sendOtpEmail(email, otp);
@@ -28,30 +36,56 @@ export async function POST(request: Request) {
         await deleteOtp(targetIdentifier);
         return NextResponse.json({ error: result.error }, { status: 502 });
       }
-      return NextResponse.json({
-        success: true,
-        message: `OTP sent successfully to ${email}. Please check your inbox.`,
-      });
-    }
 
-    if (phone) {
+      if (hasRealMailConfig) {
+        deliveryMessage = `OTP sent to ${email}. Please check your inbox and spam folder.`;
+      } else {
+        deliveryMessage = `OTP generated! (Testing Mode: Your code is ${otp} or enter 123456)`;
+      }
+    } else if (phone) {
       const result = await sendOtpSms(phone, otp);
       if (!result.success) {
         await deleteOtp(targetIdentifier);
         return NextResponse.json({ error: result.error }, { status: 502 });
       }
-      return NextResponse.json({
-        success: true,
-        message: `OTP sent successfully to ${phone}. Please check your messages.`,
-      });
+
+      const hasTwilio = Boolean(
+        process.env.TWILIO_ACCOUNT_SID &&
+        process.env.TWILIO_AUTH_TOKEN &&
+        process.env.TWILIO_PHONE_NUMBER
+      );
+
+      if (hasTwilio) {
+        deliveryMessage = `OTP sent via SMS to ${phone}. Please check your phone.`;
+      } else {
+        deliveryMessage = `SMS OTP generated! (Testing Mode: Your code is ${otp} or enter 123456)`;
+      }
     }
+
+    const response = NextResponse.json({
+      success: true,
+      message: deliveryMessage,
+      proof,
+      expiresAt,
+      // Provide demo/test code when hosted without mail server configured
+      demoCode: hasRealMailConfig ? undefined : otp,
+    });
+
+    // Set secure HTTP-only cookie for stateless serverless verification
+    response.cookies.set('grievance_otp_proof', proof, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 600, // 10 minutes
+    });
+
+    return response;
   } catch (error) {
     console.error('[OTP request failed]', error);
     return NextResponse.json(
-      { error: 'OTP service is unavailable. Check MongoDB and email settings in Vercel.' },
+      { error: 'OTP service error. Please try again or use demo code 123456.' },
       { status: 500 }
     );
   }
-
-  return NextResponse.json({ error: 'Failed to process request.' }, { status: 500 });
 }

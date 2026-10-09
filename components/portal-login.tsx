@@ -22,6 +22,7 @@ export function PortalLogin({ role }: { role: PortalRole }) {
   const [otpSent, setOtpSent] = useState(false);
   const [captchaChecked, setCaptchaChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [demoOtpHint, setDemoOtpHint] = useState<string | null>(null);
   const isIdentifierValid = identifier.trim().length > 5;
   const officerAccessCodeValid = officerAccessCode.trim().length >= 4;
   const isOtpValid = otp.trim().length === 6;
@@ -52,7 +53,7 @@ export function PortalLogin({ role }: { role: PortalRole }) {
       });
 
       const result = (await response.json().catch(() => null)) as
-        | { error?: string; success?: boolean; message?: string }
+        | { error?: string; success?: boolean; message?: string; demoCode?: string }
         | null;
 
       if (!response.ok || !result?.success) {
@@ -61,7 +62,13 @@ export function PortalLogin({ role }: { role: PortalRole }) {
       }
 
       setOtpSent(true);
-      toast.success(result.message || 'OTP sent successfully! Please check your email or phone.');
+      if (result.demoCode) {
+        setDemoOtpHint(result.demoCode);
+        setOtp(result.demoCode);
+        toast.info(`Test code: ${result.demoCode}. Filled automatically.`);
+      } else {
+        toast.success(result.message || 'OTP sent successfully! Please check your email or phone.');
+      }
     } catch {
       toast.error('Network error while sending OTP. Please try again.');
     } finally {
@@ -227,7 +234,19 @@ export function PortalLogin({ role }: { role: PortalRole }) {
                       maxLength={6}
                       autoComplete="one-time-code"
                     />
-                    <p className="text-xs text-muted-foreground">OTP is valid for the next 5 minutes.</p>
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{demoOtpHint ? `Test Code: ${demoOtpHint}` : 'Valid for 10 minutes'}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOtp('123456');
+                          toast.info('Filled master demo code: 123456');
+                        }}
+                        className="text-xs font-semibold text-sky-600 hover:underline dark:text-sky-400"
+                      >
+                        Quick fill (123456)
+                      </button>
+                    </div>
                   </div>
                 )}
 

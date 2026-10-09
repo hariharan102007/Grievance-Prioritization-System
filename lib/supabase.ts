@@ -329,14 +329,43 @@ class MockQueryBuilder {
   }
 
   async insert(payload: any) {
-    const data = this.getStore();
     const records = Array.isArray(payload) ? payload : [payload];
-    const newRecords = records.map(r => {
+    
+    // 1. If complaints table, sync to real backend database API
+    if (this.tableName === 'complaints' && typeof window !== 'undefined') {
+      try {
+        const results = await Promise.all(
+          records.map(async (r) => {
+            const res = await fetch('/api/complaints', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(r),
+            });
+            if (res.ok) {
+              return await res.json();
+            }
+            return null;
+          })
+        );
+        const validResults = results.filter(Boolean);
+        if (validResults.length > 0) {
+          // Cache in local store
+          const currentStore = this.getStore();
+          this.setStore([...currentStore, ...validResults]);
+          return { data: Array.isArray(payload) ? validResults : validResults[0], error: null };
+        }
+      } catch (networkErr) {
+        console.warn('[Offline fallback for insert]:', networkErr);
+      }
+    }
+
+    const data = this.getStore();
+    const newRecords = records.map((r) => {
       const record = {
-        id: r.id || Math.random().toString(36).substr(2, 9),
+        id: r.id || 'cmp_' + Math.random().toString(36).substring(2, 9),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        ...r
+        ...r,
       };
       if (this.tableName === 'complaints') {
         if (!record.ticket_id) {
@@ -360,7 +389,7 @@ class MockQueryBuilder {
   async delete() {
     const data = this.getStore();
     const updatedData = data.filter((item: any) => {
-      return !this.filters.every(f => item[f.field] === f.value);
+      return !this.filters.every((f) => item[f.field] === f.value);
     });
     this.setStore(updatedData);
     return { data: null, error: null };
@@ -371,11 +400,37 @@ class MockQueryBuilder {
   }
 
   async execute() {
-    // If there are pending updates, apply them to the stored data first
+    // If there are pending updates, apply to backend database API
     if (this.pendingUpdates !== null) {
+      if (this.tableName === 'complaints' && typeof window !== 'undefined') {
+        const idFilter = this.filters.find((f) => f.field === 'id' || f.field === 'ticket_id');
+        if (idFilter) {
+          try {
+            const res = await fetch(`/api/complaints/${encodeURIComponent(idFilter.value)}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.pendingUpdates),
+            });
+            if (res.ok) {
+              const updatedDoc = await res.json();
+              // Update local store cache
+              const store = this.getStore();
+              const newStore = store.map((item: any) =>
+                item.id === updatedDoc.id || item.ticket_id === updatedDoc.ticket_id ? updatedDoc : item
+              );
+              this.setStore(newStore);
+              this.pendingUpdates = null;
+              return { data: this.isMaybeSingle ? updatedDoc : [updatedDoc], error: null };
+            }
+          } catch (patchErr) {
+            console.warn('[Offline fallback for update]:', patchErr);
+          }
+        }
+      }
+
       const store = this.getStore();
       const updatedData = store.map((item: any) => {
-        const matches = this.filters.every(f => {
+        const matches = this.filters.every((f) => {
           if (f.field === 'ticket_id' && typeof f.value === 'string') {
             return (item[f.field] || '').toUpperCase() === f.value.toUpperCase();
           }
@@ -394,7 +449,7 @@ class MockQueryBuilder {
       this.setStore(updatedData);
 
       const updatedItems = updatedData.filter((item: any) =>
-        this.filters.every(f => {
+        this.filters.every((f) => {
           if (f.field === 'ticket_id' && typeof f.value === 'string') {
             return (item[f.field] || '').toUpperCase() === f.value.toUpperCase();
           }
@@ -407,11 +462,65 @@ class MockQueryBuilder {
       return { data: result, error: null };
     }
 
+    // SELECT QUERY
+    // 1. Try real backend database API first for complaints and audit_logs
+    if (typeof window !== 'undefined') {
+      if (this.tableName === 'complaints') {
+        try {
+          const params = new URLSearchParams();
+          for (const f of this.filters) {
+            if (f.field === 'ticket_id') params.append('ticket_id', String(f.value));
+            if (f.field === 'department') params.append('department', String(f.value));
+            if (f.field === 'status') params.append('status', String(f.value));
+            if (f.field === 'category') params.append('category', String(f.value));
+          }
+          if (this.orderField) {
+            params.append('order', this.orderField);
+            params.append('ascending', String(this.orderAscending));
+          }
+          if (this.limitVal !== null) {
+            params.append('limit', String(this.limitVal));
+          }
+
+          const res = await fetch(`/api/complaints?${params.toString()}`);
+          if (res.ok) {
+            const apiData = await res.json();
+            if (Array.isArray(apiData)) {
+              if (this.isMaybeSingle) {
+                return { data: apiData.length > 0 ? apiData[0] : null, error: null };
+              }
+              return { data: apiData, error: null };
+            }
+          }
+        } catch (apiErr) {
+          console.warn('[Falling back to local cache for complaints]:', apiErr);
+        }
+      } else if (this.tableName === 'audit_logs') {
+        const complaintIdFilter = this.filters.find((f) => f.field === 'complaint_id');
+        if (complaintIdFilter) {
+          try {
+            const res = await fetch(
+              `/api/audit-logs?complaint_id=${encodeURIComponent(complaintIdFilter.value)}`
+            );
+            if (res.ok) {
+              const logs = await res.json();
+              if (Array.isArray(logs)) {
+                return { data: logs, error: null };
+              }
+            }
+          } catch (logErr) {
+            console.warn('[Falling back to local cache for audit logs]:', logErr);
+          }
+        }
+      }
+    }
+
+    // Fallback to local storage store
     let data = this.getStore();
 
     if (this.filters.length > 0) {
       data = data.filter((item: any) => {
-        return this.filters.every(f => {
+        return this.filters.every((f) => {
           if (f.field === 'ticket_id' && typeof f.value === 'string') {
             return (item[f.field] || '').toUpperCase() === f.value.toUpperCase();
           }
@@ -433,7 +542,7 @@ class MockQueryBuilder {
         if (typeof valA === 'string') {
           return asc ? valA.localeCompare(valB) : valB.localeCompare(valA);
         }
-        return asc ? (valA - valB) : (valB - valA);
+        return asc ? valA - valB : valB - valA;
       });
     }
 
